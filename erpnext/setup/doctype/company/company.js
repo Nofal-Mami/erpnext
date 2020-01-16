@@ -11,22 +11,26 @@ frappe.ui.form.on("Company", {
 				filters: {"type": "Earning"}
 			}
 		});
-		frm.set_query("arrear_component", function(){
-			return {
-				filters: {"is_additional_component": 1}
-			}
-		});
 
 		frm.set_query("parent_company", function() {
 			return {
 				filters: {"is_group": 1}
 			}
 		});
+
+		frm.set_query("default_selling_terms", function() {
+			return { filters: { selling: 1 } };
+		});
+
+		frm.set_query("default_buying_terms", function() {
+			return { filters: { buying: 1 } };
+		});
 	},
 
 	company_name: function(frm) {
 		if(frm.doc.__islocal) {
-			let parts = frm.doc.company_name.split();
+			// add missing " " arg in split method
+			let parts = frm.doc.company_name.split(" ");
 			let abbr = $.map(parts, function (p) {
 				return p? p.substr(0, 1) : null;
 			}).join("");

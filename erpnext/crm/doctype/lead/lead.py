@@ -90,11 +90,11 @@ class Lead(SellingController):
 		return frappe.db.get_value("Customer", {"lead_name": self.name})
 
 	def has_opportunity(self):
-		return frappe.db.get_value("Opportunity", {"lead": self.name, "status": ["!=", "Lost"]})
+		return frappe.db.get_value("Opportunity", {"party_name": self.name, "status": ["!=", "Lost"]})
 
 	def has_quotation(self):
 		return frappe.db.get_value("Quotation", {
-			"lead": self.name,
+			"party_name": self.name,
 			"docstatus": 1,
 			"status": ["!=", "Lost"]
 
@@ -102,14 +102,18 @@ class Lead(SellingController):
 
 	def has_lost_quotation(self):
 		return frappe.db.get_value("Quotation", {
-			"lead": self.name,
+			"party_name": self.name,
 			"docstatus": 1,
 			"status": "Lost"
 		})
 
 	def set_lead_name(self):
 		if not self.lead_name:
-			frappe.db.set_value("Lead", self.name, "lead_name", self.company_name)
+			# Check for leads being created through data import
+			if not self.company_name and not self.flags.ignore_mandatory:
+				frappe.throw(_("A Lead requires either a person's name or an organization's name"))
+
+			self.lead_name = self.company_name
 
 @frappe.whitelist()
 def make_customer(source_name, target_doc=None):
@@ -141,37 +145,63 @@ def _make_customer(source_name, target_doc=None, ignore_permissions=False):
 
 @frappe.whitelist()
 def make_opportunity(source_name, target_doc=None):
+	def set_missing_values(source, target):
+		_set_missing_values(source, target)
+
 	target_doc = get_mapped_doc("Lead", source_name,
 		{"Lead": {
 			"doctype": "Opportunity",
 			"field_map": {
 				"campaign_name": "campaign",
-				"doctype": "enquiry_from",
-				"name": "lead",
+				"doctype": "opportunity_from",
+				"name": "party_name",
 				"lead_name": "contact_display",
 				"company_name": "customer_name",
 				"email_id": "contact_email",
 				"mobile_no": "contact_mobile"
 			}
-		}}, target_doc)
+		}}, target_doc, set_missing_values)
 
 	return target_doc
 
 @frappe.whitelist()
 def make_quotation(source_name, target_doc=None):
+	def set_missing_values(source, target):
+		_set_missing_values(source, target)
+
 	target_doc = get_mapped_doc("Lead", source_name,
 		{"Lead": {
 			"doctype": "Quotation",
 			"field_map": {
-				"name": "lead"
+				"name": "party_name"
 			}
-		}}, target_doc)
+		}}, target_doc, set_missing_values)
+
 	target_doc.quotation_to = "Lead"
 	target_doc.run_method("set_missing_values")
 	target_doc.run_method("set_other_charges")
 	target_doc.run_method("calculate_taxes_and_totals")
 
 	return target_doc
+
+def _set_missing_values(source, target):
+	address = frappe.get_all('Dynamic Link', {
+			'link_doctype': source.doctype,
+			'link_name': source.name,
+			'parenttype': 'Address',
+		}, ['parent'], limit=1)
+
+	contact = frappe.get_all('Dynamic Link', {
+			'link_doctype': source.doctype,
+			'link_name': source.name,
+			'parenttype': 'Contact',
+		}, ['parent'], limit=1)
+
+	if address:
+		target.customer_address = address[0].parent
+
+	if contact:
+		target.contact_person = contact[0].parent
 
 @frappe.whitelist()
 def get_lead_details(lead, posting_date=None, company=None):
@@ -186,7 +216,7 @@ def get_lead_details(lead, posting_date=None, company=None):
 	out.update({
 		"territory": lead.territory,
 		"customer_name": lead.company_name or lead.lead_name,
-		"contact_display": lead.lead_name,
+		"contact_display": " ".join(filter(None, [lead.salutation, lead.lead_name])),
 		"contact_email": lead.email_id,
 		"contact_mobile": lead.mobile_no,
 		"contact_phone": lead.phone,
@@ -226,3 +256,15 @@ def make_lead_from_communication(communication, ignore_communication_links=False
 
 	link_communication_to_document(doc, "Lead", lead_name, ignore_communication_links)
 	return lead_name
+
+def get_lead_with_phone_number(number):
+	if not number: return
+
+	leads = frappe.get_all('Lead', or_filters={
+		'phone': ['like', '%{}'.format(number)],
+		'mobile_no': ['like', '%{}'.format(number)]
+	}, limit=1)
+
+	lead = leads[0].name if leads else None
+
+	return lead

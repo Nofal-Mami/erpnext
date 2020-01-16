@@ -45,6 +45,13 @@ frappe.query_reports["Accounts Receivable Summary"] = {
 			"reqd": 1
 		},
 		{
+			"fieldname":"range4",
+			"label": __("Ageing Range 4"),
+			"fieldtype": "Int",
+			"default": "120",
+			"reqd": 1
+		},
+		{
 			"fieldname":"finance_book",
 			"label": __("Finance Book"),
 			"fieldtype": "Link",
@@ -99,6 +106,11 @@ frappe.query_reports["Accounts Receivable Summary"] = {
 			"label": __("Sales Person"),
 			"fieldtype": "Link",
 			"options": "Sales Person"
+		},
+		{
+			"fieldname":"based_on_payment_terms",
+			"label": __("Based On Payment Terms"),
+			"fieldtype": "Check",
 		}
 	],
 
@@ -109,3 +121,12 @@ frappe.query_reports["Accounts Receivable Summary"] = {
 		});
 	}
 }
+
+erpnext.dimension_filters.forEach((dimension) => {
+	frappe.query_reports["Accounts Receivable Summary"].filters.splice(9, 0 ,{
+		"fieldname": dimension["fieldname"],
+		"label": __(dimension["label"]),
+		"fieldtype": "Link",
+		"options": dimension["document_type"]
+	});
+});

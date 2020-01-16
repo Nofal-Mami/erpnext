@@ -8,6 +8,7 @@ frappe.ui.form.on('Material Request', {
 	setup: function(frm) {
 		frm.custom_make_buttons = {
 			'Stock Entry': 'Issue Material',
+			'Pick List': 'Pick List',
 			'Purchase Order': 'Purchase Order',
 			'Request for Quotation': 'Request for Quotation',
 			'Supplier Quotation': 'Supplier Quotation',
@@ -38,6 +39,10 @@ frappe.ui.form.on('Material Request', {
 		};
 	},
 
+	onload_post_render: function(frm) {
+		frm.get_field("items").grid.set_multiple_add("item_code", "qty");
+	},
+
 	refresh: function(frm) {
 		frm.events.make_custom_buttons(frm);
 		frm.toggle_reqd('customer', frm.doc.material_request_type=="Customer Provided");
@@ -51,8 +56,13 @@ frappe.ui.form.on('Material Request', {
 
 		if (frm.doc.docstatus == 1 && frm.doc.status != 'Stopped') {
 			if (flt(frm.doc.per_ordered, 2) < 100) {
-				// make
+				let add_create_pick_list_button = () => {
+					frm.add_custom_button(__('Pick List'),
+						() => frm.events.create_pick_list(frm), __('Create'));
+				}
+
 				if (frm.doc.material_request_type === "Material Transfer") {
+					add_create_pick_list_button();
 					frm.add_custom_button(__("Transfer Material"),
 						() => frm.events.make_stock_entry(frm), __('Create'));
 				}
@@ -188,6 +198,7 @@ frappe.ui.form.on('Material Request', {
 			var values = d.get_values();
 			if(!values) return;
 			values["company"] = frm.doc.company;
+			if(!frm.doc.company) frappe.throw(__("Company field is required"));
 			frappe.call({
 				method: "erpnext.manufacturing.doctype.bom.bom.get_bom_items",
 				args: values,
@@ -206,6 +217,7 @@ frappe.ui.form.on('Material Request', {
 							d.stock_uom = item.stock_uom;
 							d.conversion_factor = 1;
 							d.qty = item.qty;
+							d.project = item.project;
 						});
 					}
 					d.hide();
@@ -218,7 +230,8 @@ frappe.ui.form.on('Material Request', {
 
 	make_purchase_order: function(frm) {
 		frappe.prompt(
-			{fieldname:'default_supplier', label: __('For Default Supplier (optional)'), fieldtype: 'Link', options: 'Supplier'},
+			{fieldname:'default_supplier', label: __('For Default Supplier (optional)'), description: __('Selected Supplier\
+			must be the Default Supplier of one of the items below.'), fieldtype: 'Link', options: 'Supplier'},
 			(values) => {
 				frappe.model.open_mapped_doc({
 					method: "erpnext.stock.doctype.material_request.material_request.make_purchase_order",
@@ -226,7 +239,8 @@ frappe.ui.form.on('Material Request', {
 					args: { default_supplier: values.default_supplier },
 					run_link_triggers: true
 				});
-			}
+			},
+			__('Enter Supplier')
 		)
 	},
 
@@ -248,6 +262,13 @@ frappe.ui.form.on('Material Request', {
 	make_stock_entry: function(frm) {
 		frappe.model.open_mapped_doc({
 			method: "erpnext.stock.doctype.material_request.material_request.make_stock_entry",
+			frm: frm
+		});
+	},
+
+	create_pick_list: (frm) => {
+		frappe.model.open_mapped_doc({
+			method: "erpnext.stock.doctype.material_request.material_request.create_pick_list",
 			frm: frm
 		});
 	},

@@ -157,7 +157,7 @@ erpnext.accounts.PurchaseInvoice = erpnext.buying.BuyingController.extend({
 	can_change_release_date: function(date) {
 		const diff = frappe.datetime.get_diff(date, frappe.datetime.nowdate());
 		if (diff < 0) {
-			frappe.throw('New release date should be in the future');
+			frappe.throw(__('New release date should be in the future'));
 			return false;
 		} else {
 			return true;
@@ -285,6 +285,7 @@ erpnext.accounts.PurchaseInvoice = erpnext.buying.BuyingController.extend({
 	is_paid: function() {
 		hide_fields(this.frm.doc);
 		if(cint(this.frm.doc.is_paid)) {
+			this.frm.set_value("allocate_advances_automatically", 0);
 			if(!this.frm.doc.company) {
 				this.frm.set_value("is_paid", 0)
 				frappe.msgprint(__("Please specify Company to proceed"));
@@ -329,23 +330,6 @@ erpnext.accounts.PurchaseInvoice = erpnext.buying.BuyingController.extend({
 			frm: cur_frm
 		})
 	},
-
-	asset: function(frm, cdt, cdn) {
-		var row = locals[cdt][cdn];
-		if(row.asset) {
-			frappe.call({
-				method: "erpnext.assets.doctype.asset_category.asset_category.get_asset_category_account",
-				args: {
-					"asset": row.asset,
-					"fieldname": "fixed_asset_account",
-					"account": row.expense_account
-				},
-				callback: function(r, rt) {
-					frappe.model.set_value(cdt, cdn, "expense_account", r.message);
-				}
-			})
-		}
-	}
 });
 
 cur_frm.script_manager.make(erpnext.accounts.PurchaseInvoice);
@@ -398,21 +382,11 @@ cur_frm.fields_dict['items'].grid.get_field("item_code").get_query = function(do
 
 cur_frm.fields_dict['credit_to'].get_query = function(doc) {
 	// filter on Account
-	if (doc.supplier) {
-		return {
-			filters: {
-				'account_type': 'Payable',
-				'is_group': 0,
-				'company': doc.company
-			}
-		}
-	} else {
-		return {
-			filters: {
-				'report_type': 'Balance Sheet',
-				'is_group': 0,
-				'company': doc.company
-			}
+	return {
+		filters: {
+			'account_type': 'Payable',
+			'is_group': 0,
+			'company': doc.company
 		}
 	}
 }
@@ -429,19 +403,7 @@ cur_frm.fields_dict['select_print_heading'].get_query = function(doc, cdt, cdn) 
 cur_frm.set_query("expense_account", "items", function(doc) {
 	return {
 		query: "erpnext.controllers.queries.get_expense_account",
-		filters: {'company': doc.company}
-	}
-});
-
-cur_frm.set_query("asset", "items", function(doc, cdt, cdn) {
-	var d = locals[cdt][cdn];
-	return {
-		filters: {
-			'item_code': d.item_code,
-			'docstatus': 1,
-			'company': doc.company,
-			'status': 'Submitted'
-		}
+		filters: {'company': doc.company }
 	}
 });
 
@@ -522,8 +484,13 @@ frappe.ui.form.on("Purchase Invoice", {
 	},
 
 	onload: function(frm) {
-		if(frm.doc.__onload && !frm.doc.__onload.supplier_tds) {
-			me.frm.set_df_property("apply_tds", "read_only", 1);
+		if(frm.doc.__onload) {
+			if(frm.doc.supplier) {
+				frm.doc.apply_tds = frm.doc.__onload.supplier_tds ? 1 : 0;
+			}
+			if(!frm.doc.__onload.supplier_tds) {
+				frm.set_df_property("apply_tds", "read_only", 1);
+			}
 		}
 
 		erpnext.queries.setup_queries(frm, "Warehouse", function() {

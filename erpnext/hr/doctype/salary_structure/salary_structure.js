@@ -46,10 +46,12 @@ frappe.ui.form.on('Salary Structure', {
 		frm.trigger("toggle_fields");
 		frm.fields_dict['earnings'].grid.set_column_disp("default_amount", false);
 		frm.fields_dict['deductions'].grid.set_column_disp("default_amount", false);
-
-		frm.add_custom_button(__("Preview Salary Slip"), function() {
-			frm.trigger('preview_salary_slip');
-		});
+		
+		if(frm.doc.docstatus === 1) {
+			frm.add_custom_button(__("Preview Salary Slip"), function() {
+				frm.trigger('preview_salary_slip');
+			});
+		}
 
 		if(frm.doc.docstatus==1) {
 			frm.add_custom_button(__("Assign Salary Structure"), function() {
@@ -147,7 +149,8 @@ frappe.ui.form.on('Salary Structure', {
 							source_name: frm.doc.name,
 							employee: values.employee,
 							as_print: 1,
-							print_format: print_format
+							print_format: print_format,
+							for_preview: 1
 						},
 						callback: function(r) {
 							var new_window = window.open();

@@ -67,8 +67,6 @@ class Item(WebsiteGenerator):
 				from frappe.model.naming import set_name_by_naming_series
 				set_name_by_naming_series(self)
 				self.item_code = self.name
-		elif not self.item_code:
-			msgprint(_("Item Code is mandatory because Item is not automatically numbered"), raise_exception=1)
 
 		self.item_code = strip(self.item_code)
 		self.name = self.item_code
@@ -124,7 +122,9 @@ class Item(WebsiteGenerator):
 		self.validate_item_defaults()
 		self.validate_customer_provided_part()
 		self.update_defaults_from_item_group()
-		self.validate_stock_for_has_batch_and_has_serial()
+		self.validate_auto_reorder_enabled_in_stock_settings()
+		self.cant_change()
+		self.update_show_in_website()
 
 		if not self.get("__islocal"):
 			self.old_item_group = frappe.db.get_value(self.doctype, self.name, "item_group")
@@ -198,6 +198,9 @@ class Item(WebsiteGenerator):
 					'route')) + '/' + self.scrub((self.item_name if self.item_name else self.item_code) + '-' + random_string(5))
 
 	def validate_website_image(self):
+		if frappe.flags.in_import:
+			return
+
 		"""Validate if the website image is a public file"""
 		auto_set_website_image = False
 		if not self.website_image and self.image:
@@ -217,8 +220,7 @@ class Item(WebsiteGenerator):
 
 		if not file_doc:
 			if not auto_set_website_image:
-				frappe.msgprint(_("Website Image {0} attached to Item {1} cannot be found")
-									.format(self.website_image, self.name))
+				frappe.msgprint(_("Website Image {0} attached to Item {1} cannot be found").format(self.website_image, self.name))
 
 			self.website_image = None
 
@@ -229,6 +231,9 @@ class Item(WebsiteGenerator):
 			self.website_image = None
 
 	def make_thumbnail(self):
+		if frappe.flags.in_import:
+			return
+
 		"""Make a thumbnail of `website_image`"""
 		import requests.exceptions
 
@@ -472,6 +477,10 @@ class Item(WebsiteGenerator):
 
 		[self.remove(d) for d in to_remove]
 
+	def update_show_in_website(self):
+		if self.disabled:
+			self.show_in_website = False
+
 	def update_template_tables(self):
 		template = frappe.get_doc("Item", self.variant_of)
 
@@ -542,7 +551,7 @@ class Item(WebsiteGenerator):
 						"""select parent from `tabItem Barcode` where barcode = %s and parent != %s""", (item_barcode.barcode, self.name))
 					if duplicate:
 						frappe.throw(_("Barcode {0} already used in Item {1}").format(
-							item_barcode.barcode, duplicate[0][0]), frappe.DuplicateEntryError)
+							item_barcode.barcode, duplicate[0][0]))
 
 					item_barcode.barcode_type = "" if item_barcode.barcode_type not in options else item_barcode.barcode_type
 					if item_barcode.barcode_type and item_barcode.barcode_type.upper() in ('EAN', 'UPC-A', 'EAN-13', 'EAN-8'):
@@ -628,7 +637,7 @@ class Item(WebsiteGenerator):
 											json.dumps(item_wise_tax_detail), update_modified=False)
 
 	def set_last_purchase_rate(self, new_name):
-		last_purchase_rate = get_last_purchase_details(new_name).get("base_rate", 0)
+		last_purchase_rate = get_last_purchase_details(new_name).get("base_net_rate", 0)
 		frappe.db.set_value("Item", new_name, "last_purchase_rate", last_purchase_rate)
 
 	def recalculate_bin_qty(self, new_name):
@@ -723,7 +732,18 @@ class Item(WebsiteGenerator):
 						'income_account': item.income_account
 					})
 			else:
-				self.append("item_defaults", {"company": frappe.defaults.get_defaults().company})
+				warehouse = ''
+				defaults = frappe.defaults.get_defaults() or {}
+
+				# To check default warehouse is belong to the default company
+				if defaults.get("default_warehouse") and frappe.db.exists("Warehouse",
+					{'name': defaults.default_warehouse, 'company': defaults.company}):
+					warehouse = defaults.default_warehouse
+
+				self.append("item_defaults", {
+					"company": defaults.get("company"),
+					"default_warehouse": warehouse
+				})
 
 	def update_variants(self):
 		if self.flags.dont_update_variants or \
@@ -800,10 +820,12 @@ class Item(WebsiteGenerator):
 
 	def validate_variant_attributes(self):
 		if self.is_new() and self.variant_of and self.variant_based_on == 'Item Attribute':
+			# remove attributes with no attribute_value set
+			self.attributes = [d for d in self.attributes if cstr(d.attribute_value).strip()]
+
 			args = {}
-			for d in self.attributes:
-				if cstr(d.attribute_value).strip() == '':
-					frappe.throw(_("Please specify Attribute Value for attribute {0}").format(d.attribute))
+			for i, d in enumerate(self.attributes):
+				d.idx = i + 1
 				args[d.attribute] = d.attribute_value
 
 			variant = get_variant(self.variant_of, args, self.name)
@@ -817,11 +839,42 @@ class Item(WebsiteGenerator):
 			for d in self.attributes:
 				d.variant_of = self.variant_of
 
-	def validate_stock_for_has_batch_and_has_serial(self):
-		if self.stock_ledger_created():
-			for value in ["has_batch_no", "has_serial_no"]:
-				if frappe.db.get_value("Item", self.name, value) != self.get_value(value):
-					frappe.throw(_("Cannot change {0} as Stock Transaction for Item {1} exist.".format(value, self.name)))
+	def cant_change(self):
+		if not self.get("__islocal"):
+			fields = ("has_serial_no", "is_stock_item", "valuation_method", "has_batch_no")
+
+			values = frappe.db.get_value("Item", self.name, fields, as_dict=True)
+			if not values.get('valuation_method') and self.get('valuation_method'):
+				values['valuation_method'] = frappe.db.get_single_value("Stock Settings", "valuation_method") or "FIFO"
+
+			if values:
+				for field in fields:
+					if cstr(self.get(field)) != cstr(values.get(field)):
+						if not self.check_if_linked_document_exists(field):
+							break # no linked document, allowed
+						else:
+							frappe.throw(_("As there are existing transactions against item {0}, you can not change the value of {1}").format(self.name, frappe.bold(self.meta.get_label(field))))
+
+	def check_if_linked_document_exists(self, field):
+		linked_doctypes = ["Delivery Note Item", "Sales Invoice Item", "Purchase Receipt Item",
+			"Purchase Invoice Item", "Stock Entry Detail", "Stock Reconciliation Item"]
+
+		# For "Is Stock Item", following doctypes is important
+		# because reserved_qty, ordered_qty and requested_qty updated from these doctypes
+		if field == "is_stock_item":
+			linked_doctypes += ["Sales Order Item", "Purchase Order Item", "Material Request Item"]
+
+		for doctype in linked_doctypes:
+			if frappe.db.get_value(doctype, filters={"item_code": self.name, "docstatus": 1}) or \
+				frappe.db.get_value("Production Order",
+					filters={"production_item": self.name, "docstatus": 1}):
+				return True
+
+	def validate_auto_reorder_enabled_in_stock_settings(self):
+		if self.reorder_levels:
+			enabled = frappe.db.get_single_value('Stock Settings', 'auto_indent')
+			if not enabled:
+				frappe.msgprint(msg=_("You have to enable auto re-order in Stock Settings to maintain re-order levels."), title=_("Enable Auto Re-Order"), indicator="orange")
 
 def get_timeline_data(doctype, name):
 	'''returns timeline data based on stock ledger entry'''
@@ -868,7 +921,6 @@ def validate_cancelled_item(item_code, docstatus=None, verbose=1):
 		msg = _("Item {0} is cancelled").format(item_code)
 		_msgprint(msg, verbose)
 
-
 def _msgprint(msg, verbose):
 	if verbose:
 		msgprint(msg, raise_exception=True)
@@ -882,7 +934,7 @@ def get_last_purchase_details(item_code, doc_name=None, conversion_rate=1.0):
 	last_purchase_order = frappe.db.sql("""\
 		select po.name, po.transaction_date, po.conversion_rate,
 			po_item.conversion_factor, po_item.base_price_list_rate,
-			po_item.discount_percentage, po_item.base_rate
+			po_item.discount_percentage, po_item.base_rate, po_item.base_net_rate
 		from `tabPurchase Order` po, `tabPurchase Order Item` po_item
 		where po.docstatus = 1 and po_item.item_code = %s and po.name != %s and
 			po.name = po_item.parent
@@ -893,7 +945,7 @@ def get_last_purchase_details(item_code, doc_name=None, conversion_rate=1.0):
 	last_purchase_receipt = frappe.db.sql("""\
 		select pr.name, pr.posting_date, pr.posting_time, pr.conversion_rate,
 			pr_item.conversion_factor, pr_item.base_price_list_rate, pr_item.discount_percentage,
-			pr_item.base_rate
+			pr_item.base_rate, pr_item.base_net_rate
 		from `tabPurchase Receipt` pr, `tabPurchase Receipt Item` pr_item
 		where pr.docstatus = 1 and pr_item.item_code = %s and pr.name != %s and
 			pr.name = pr_item.parent
@@ -924,6 +976,7 @@ def get_last_purchase_details(item_code, doc_name=None, conversion_rate=1.0):
 	out = frappe._dict({
 		"base_price_list_rate": flt(last_purchase.base_price_list_rate) / conversion_factor,
 		"base_rate": flt(last_purchase.base_rate) / conversion_factor,
+		"base_net_rate": flt(last_purchase.net_rate) / conversion_factor,
 		"discount_percentage": flt(last_purchase.discount_percentage),
 		"purchase_date": purchase_date
 	})
@@ -932,7 +985,8 @@ def get_last_purchase_details(item_code, doc_name=None, conversion_rate=1.0):
 	out.update({
 		"price_list_rate": out.base_price_list_rate / conversion_rate,
 		"rate": out.base_rate / conversion_rate,
-		"base_rate": out.base_rate
+		"base_rate": out.base_rate,
+		"base_net_rate": out.base_net_rate
 	})
 
 	return out

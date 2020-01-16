@@ -102,6 +102,9 @@ def get_item_codes_by_attributes(attribute_filters, template_item_code=None):
 	for attribute, values in attribute_filters.items():
 		attribute_values = values
 
+		if not isinstance(attribute_values, list):
+			attribute_values = [attribute_values]
+
 		if not attribute_values: continue
 
 		wheres = []
@@ -167,8 +170,13 @@ def get_attributes_and_values(item_code):
 		if attribute in attribute_list:
 			valid_options.setdefault(attribute, set()).add(attribute_value)
 
+	item_attribute_values = frappe.db.get_all('Item Attribute Value',
+		['parent', 'attribute_value', 'idx'], order_by='parent asc, idx asc')
+	ordered_attribute_value_map = frappe._dict()
+	for iv in item_attribute_values:
+		ordered_attribute_value_map.setdefault(iv.parent, []).append(iv.attribute_value)
+
 	# build attribute values in idx order
-	ordered_attribute_value_map = item_cache.get_ordered_attribute_values()
 	for attr in attributes:
 		valid_attribute_values = valid_options.get(attr.attribute, [])
 		ordered_values = ordered_attribute_value_map.get(attr.attribute, [])
@@ -252,7 +260,8 @@ def get_items_with_selected_attributes(item_code, selected_attributes):
 
 	items = []
 	for attribute, value in selected_attributes.items():
-		items.append(set(attribute_value_item_map[(attribute, value)]))
+		filtered_items = attribute_value_item_map.get((attribute, value), [])
+		items.append(set(filtered_items))
 
 	return set.intersection(*items)
 
@@ -293,6 +302,8 @@ def get_items(filters=None, search=None):
 	if isinstance(filters, dict):
 		filters = [['Item', fieldname, '=', value] for fieldname, value in filters.items()]
 
+	enabled_items_filter = get_conditions({ 'disabled': 0 }, 'and')
+
 	show_in_website_condition = ''
 	if products_settings.hide_variants:
 		show_in_website_condition = get_conditions({'show_in_website': 1 }, 'and')
@@ -304,19 +315,32 @@ def get_items(filters=None, search=None):
 
 	search_condition = ''
 	if search:
+		# Default fields to search from
+		default_fields = {'name', 'item_name', 'description', 'item_group'}
+
+		# Get meta search fields
+		meta = frappe.get_meta("Item")
+		meta_fields = set(meta.get_search_fields())
+
+		# Join the meta fields and default fields set
+		search_fields = default_fields.union(meta_fields)
+		try:
+			if frappe.db.count('Item', cache=True) > 50000:
+				search_fields.remove('description')
+		except KeyError:
+			pass
+
+		# Build or filters for query
 		search = '%{}%'.format(search)
-		or_filters = [
-			['name', 'like', search],
-			['item_name', 'like', search],
-			['description', 'like', search],
-			['item_group', 'like', search]
-		]
+		or_filters = [[field, 'like', search] for field in search_fields]
+
 		search_condition = get_conditions(or_filters, 'or')
 
 	filter_condition = get_conditions(filters, 'and')
 
 	where_conditions = ' and '.join(
-		[condition for condition in [show_in_website_condition, search_condition, filter_condition] if condition]
+		[condition for condition in [enabled_items_filter, show_in_website_condition, \
+			search_condition, filter_condition] if condition]
 	)
 
 	left_joins = []

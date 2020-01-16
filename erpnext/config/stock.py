@@ -32,6 +32,12 @@ def get_data():
 				},
 				{
 					"type": "doctype",
+					"name": "Pick List",
+					"onboard": 1,
+					"dependencies": ["Item"],
+				},
+				{
+					"type": "doctype",
 					"name": "Delivery Trip"
 				},
 			]
@@ -163,6 +169,10 @@ def get_data():
 				},
 				{
 					"type": "doctype",
+					"name": "Item Manufacturer",
+				},
+				{
+					"type": "doctype",
 					"name": "Item Variant Settings",
 				},
 			]
@@ -231,6 +241,10 @@ def get_data():
 					"type": "doctype",
 					"name": "Quality Inspection Template",
 				},
+				{
+					"type": "doctype",
+					"name": "Quick Stock Balance",
+				},
 			]
 		},
 		{
@@ -277,9 +291,9 @@ def get_data():
 				},
 				{
 					"type": "report",
+					"is_query_report": True,
 					"name": "Item Shortage Report",
-					"route": "#Report/Bin/Item Shortage Report",
-					"doctype": "Purchase Receipt"
+					"doctype": "Bin"
 				},
 				{
 					"type": "report",
@@ -322,48 +336,26 @@ def get_data():
 					"is_query_report": True,
 					"name": "Item Variant Details",
 					"doctype": "Item"
+				},
+				{
+					"type": "report",
+					"is_query_report": True,
+					"name": "Subcontracted Raw Materials To Be Transferred",
+					"doctype": "Purchase Order"
+				},
+				{
+					"type": "report",
+					"is_query_report": True,
+					"name": "Subcontracted Item To Be Received",
+					"doctype": "Purchase Order"
+				},
+				{
+					"type": "report",
+					"is_query_report": True,
+					"name": "Stock and Account Value Comparison",
+					"doctype": "Stock Ledger Entry"
 				}
 			]
 		},
-		{
-			"label": _("Help"),
-			"icon": "fa fa-facetime-video",
-			"items": [
-				{
-					"type": "help",
-					"label": _("Items and Pricing"),
-					"youtube_id": "qXaEwld4_Ps"
-				},
-				{
-					"type": "help",
-					"label": _("Item Variants"),
-					"youtube_id": "OGBETlCzU5o"
-				},
-				{
-					"type": "help",
-					"label": _("Opening Stock Balance"),
-					"youtube_id": "0yPgrtfeCTs"
-				},
-				{
-					"type": "help",
-					"label": _("Making Stock Entries"),
-					"youtube_id": "Njt107hlY3I"
-				},
-				{
-					"type": "help",
-					"label": _("Serialized Inventory"),
-					"youtube_id": "gvOVlEwFDAk"
-				},
-				{
-					"type": "help",
-					"label": _("Batch Inventory"),
-					"youtube_id": "J0QKl7ABPKM"
-				},
-				{
-					"type": "help",
-					"label": _("Managing Subcontracting"),
-					"youtube_id": "ThiMCC2DtKo"
-				},
-			]
-		}
+
 	]

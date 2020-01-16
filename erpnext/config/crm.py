@@ -41,6 +41,21 @@ def get_data():
 					"name": "Lead Source",
 					"description": _("Track Leads by Lead Source.")
 				},
+				{
+					"type": "doctype",
+					"name": "Contract",
+					"description": _("Helps you keep tracks of Contracts based on Supplier, Customer and Employee"),
+				},
+				{
+					"type": "doctype",
+					"name": "Appointment",
+					"description" : _("Helps you manage appointments with your leads"),
+				},
+        {
+          "type": "doctype",
+					"name": "Newsletter",
+					"label": _("Newsletter"),
+				}
 			]
 		},
 		{
@@ -143,6 +158,11 @@ def get_data():
 				},
 				{
 					"type": "doctype",
+					"name": "Email Campaign",
+					"description": _("Sends Mails to lead or contact based on a Campaign schedule"),
+				},
+				{
+					"type": "doctype",
 					"name": "SMS Center",
 					"description":_("Send mass SMS to your contacts"),
 				},
@@ -155,6 +175,11 @@ def get_data():
 					"type": "doctype",
 					"name": "SMS Settings",
 					"description": _("Setup SMS gateway settings")
+				},
+				{
+					"type": "doctype",
+					"label": _("Email Group"),
+					"name": "Email Group",
 				}
 			]
 		},

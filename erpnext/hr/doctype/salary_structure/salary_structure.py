@@ -57,11 +57,12 @@ class SalaryStructure(Document):
 					have_a_flexi = True
 					max_of_component = frappe.db.get_value("Salary Component", earning_component.salary_component, "max_benefit_amount")
 					flexi_amount += max_of_component
+
 			if have_a_flexi and flt(self.max_benefits) == 0:
 				frappe.throw(_("Max benefits should be greater than zero to dispense benefits"))
-			if have_a_flexi and flt(self.max_benefits) > flexi_amount:
-				frappe.throw(_("Total flexible benefit component amount {0} should not be less \
-				than max benefits {1}").format(flexi_amount, self.max_benefits))
+			if have_a_flexi and flexi_amount and flt(self.max_benefits) > flexi_amount:
+				frappe.throw(_("Total flexible benefit component amount {0} should not be less than max benefits {1}")
+					.format(flexi_amount, self.max_benefits))
 		if not have_a_flexi and flt(self.max_benefits) > 0:
 			frappe.throw(_("Salary Structure should have flexible benefit component(s) to dispense benefit amount"))
 
@@ -136,7 +137,7 @@ def get_existing_assignments(employees, salary_structure,from_date):
 	return salary_structures_assignments
 
 @frappe.whitelist()
-def make_salary_slip(source_name, target_doc = None, employee = None, as_print = False, print_format = None):
+def make_salary_slip(source_name, target_doc = None, employee = None, as_print = False, print_format = None, for_preview=0):
 	def postprocess(source, target):
 		if employee:
 			employee_details = frappe.db.get_value("Employee", employee,
@@ -146,7 +147,7 @@ def make_salary_slip(source_name, target_doc = None, employee = None, as_print =
 			target.branch = employee_details.branch
 			target.designation = employee_details.designation
 			target.department = employee_details.department
-		target.run_method('process_salary_structure')
+		target.run_method('process_salary_structure', for_preview=for_preview)
 
 	doc = get_mapped_doc("Salary Structure", source_name, {
 		"Salary Structure": {
@@ -168,5 +169,10 @@ def make_salary_slip(source_name, target_doc = None, employee = None, as_print =
 @frappe.whitelist()
 def get_employees(salary_structure):
 	employees = frappe.get_list('Salary Structure Assignment',
-		filters={'salary_structure': salary_structure}, fields=['employee'])
+		filters={'salary_structure': salary_structure, 'docstatus': 1}, fields=['employee'])
+	
+	if not employees:
+		frappe.throw(_("There's no Employee with Salary Structure: {0}. \
+			Assign {1} to an Employee to preview Salary Slip").format(salary_structure, salary_structure))
+
 	return list(set([d.employee for d in employees]))
